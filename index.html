@@ -2,63 +2,45 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>VR Ball Catching Game</title>
-    <meta name="description" content="Neuro Rehab VR Ball Game">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/aframe/1.4.0/aframe.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/super-hands/3.0.3/super-hands.min.js"></script>
+    <title>VR Ball Catching Game - Button Controls</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
 </head>
 <body>
-    <a-scene embedded style="height: 100vh; width: 100vw;" vr-mode-ui="enabled: true">
-        <!-- Assets -->
-        <a-assets>
-            <a-mixin id="ball" 
-                geometry="primitive: sphere; radius: 0.15" 
-                material="color: #ff4444; roughness: 0.2; metalness: 0.1"
-                shadow="cast: true; receive: true">
-            </a-mixin>
-        </a-assets>
-
+    <a-scene background="color: #87CEEB" vr-mode-ui="enabled: true">
         <!-- Environment -->
-        <a-sky color="#87CEEB"></a-sky>
-        <a-plane position="0 0 -4" rotation="-90 0 0" width="10" height="10" 
-                 color="#90EE90" shadow="receive: true"></a-plane>
-
+        <a-plane position="0 0 -4" rotation="-90 0 0" width="10" height="10" color="#90EE90"></a-plane>
+        
         <!-- Lighting -->
-        <a-light type="ambient" color="#404040" intensity="0.4"></a-light>
-        <a-light type="directional" position="2 4 2" color="#ffffff" intensity="0.8" shadow="cast: true"></a-light>
+        <a-light type="ambient" color="#404040"></a-light>
+        <a-light type="directional" position="2 4 2" color="#ffffff"></a-light>
 
         <!-- Game UI -->
-        <a-text id="score-text" position="-2 3 -3" value="Score: 0/10" color="black" 
-                font="kelsonsans" width="8" align="center"></a-text>
-        <a-text id="round-text" position="0 3.5 -3" value="Round 1" color="black" 
-                font="kelsonsans" width="6" align="center"></a-text>
-        <a-text id="instruction-text" position="0 2.5 -3" 
-                value="Catch the balls with your controllers!" color="blue" 
-                font="kelsonsans" width="4" align="center"></a-text>
-
-        <!-- Ball spawn points (invisible) -->
-        <a-entity id="left-spawn" position="-3 2 -2"></a-entity>
-        <a-entity id="right-spawn" position="3 2 -2"></a-entity>
-        <a-entity id="target-point" position="0 1.6 -0.5"></a-entity>
-
-        <!-- VR Controllers -->
-        <a-entity id="left-hand" hand-controls="hand: left; handModelStyle: lowPoly; color: #ffcccc"
-                  laser-controls raycaster="objects: .ball; far: 1" line="color: red; opacity: 0.75"
-                  super-hands="colliderEvent: raycaster-intersection; colliderEndEvent: raycaster-intersection-cleared">
-        </a-entity>
+        <a-text id="score-text" position="0 3.2 -3" value="Score: 0/10" color="black" align="center" width="8"></a-text>
+        <a-text id="round-text" position="0 3.6 -3" value="Round 1" color="black" align="center" width="6"></a-text>
         
-        <a-entity id="right-hand" hand-controls="hand: right; handModelStyle: lowPoly; color: #ccffcc"
-                  laser-controls raycaster="objects: .ball; far: 1" line="color: blue; opacity: 0.75"
-                  super-hands="colliderEvent: raycaster-intersection; colliderEndEvent: raycaster-intersection-cleared">
-        </a-entity>
+        <!-- Side indicators -->
+        <a-text id="left-indicator" position="-2.5 2.8 -3" value="LEFT SIDE\n(Press G)" color="blue" align="center" width="4"></a-text>
+        <a-text id="right-indicator" position="2.5 2.8 -3" value="RIGHT SIDE\n(Press H)" color="red" align="center" width="4"></a-text>
 
-        <!-- Camera rig -->
+        <!-- Instructions -->
+        <a-text id="instruction-text" position="0 2.2 -3" 
+                value="Watch the ball! Press G for left balls, H for right balls!" 
+                color="darkgreen" align="center" width="5"></a-text>
+
+        <!-- Feedback text -->
+        <a-text id="feedback-text" position="0 1.8 -3" value="" color="orange" align="center" width="6"></a-text>
+
+        <!-- VR Controllers (for VR mode) -->
+        <a-entity id="leftHand" hand-controls="hand: left" laser-controls visible="false"></a-entity>
+        <a-entity id="rightHand" hand-controls="hand: right" laser-controls visible="false"></a-entity>
+
+        <!-- Camera -->
         <a-entity id="rig" movement-controls position="0 1.6 1">
-            <a-camera id="camera" look-controls wasd-controls-enabled="false"></a-camera>
+            <a-camera look-controls></a-camera>
         </a-entity>
 
-        <!-- Game Logic -->
-        <a-entity id="game-controller"></a-entity>
+        <!-- Game Manager -->
+        <a-entity id="gameManager" game-logic></a-entity>
     </a-scene>
 
     <script>
@@ -68,168 +50,217 @@
             round: 1,
             ballsThrown: 0,
             totalBalls: 10,
-            isGameActive: true,
-            ballSpeed: 2
+            gameActive: true,
+            currentBall: null,
+            currentBallSide: null, // 'left' or 'right'
+            ballActive: false
         };
 
-        // Ball spawning and game logic
-        AFRAME.registerComponent('game-controller', {
+        // Game logic component
+        AFRAME.registerComponent('game-logic', {
             init: function() {
-                this.spawnBall = this.spawnBall.bind(this);
-                this.resetRound = this.resetRound.bind(this);
-                
-                // Start the first ball after a delay
+                console.log('Game starting...');
+                this.startGame();
+                this.setupKeyboardControls();
+            },
+
+            setupKeyboardControls: function() {
+                document.addEventListener('keydown', (event) => {
+                    if (!gameState.ballActive || !gameState.currentBall) return;
+
+                    const key = event.key.toLowerCase();
+                    let correctKey = false;
+
+                    if (key === 'g' && gameState.currentBallSide === 'left') {
+                        correctKey = true;
+                    } else if (key === 'h' && gameState.currentBallSide === 'right') {
+                        correctKey = true;
+                    }
+
+                    if (correctKey) {
+                        this.catchBall(gameState.currentBall, true);
+                    } else if (key === 'g' || key === 'h') {
+                        this.wrongButton();
+                    }
+                });
+            },
+
+            startGame: function() {
+                this.showFeedback("Get ready...", "blue");
                 setTimeout(() => {
                     this.spawnBall();
                 }, 2000);
             },
 
             spawnBall: function() {
-                if (!gameState.isGameActive || gameState.ballsThrown >= gameState.totalBalls) {
+                if (gameState.ballsThrown >= gameState.totalBalls) {
+                    this.endRound();
                     return;
                 }
 
-                // Randomly choose left or right spawn
+                console.log('Spawning ball', gameState.ballsThrown + 1);
+
+                // Random side selection
                 const isLeft = Math.random() < 0.5;
-                const spawnPoint = isLeft ? 
-                    document.querySelector('#left-spawn').object3D.position :
-                    document.querySelector('#right-spawn').object3D.position;
+                gameState.currentBallSide = isLeft ? 'left' : 'right';
+                const xPos = isLeft ? -2.5 : 2.5;
 
-                // Create ball entity
+                // Create ball
                 const ball = document.createElement('a-sphere');
-                ball.setAttribute('mixin', 'ball');
-                ball.setAttribute('class', 'ball catchable');
-                ball.setAttribute('position', `${spawnPoint.x} ${spawnPoint.y} ${spawnPoint.z}`);
-                ball.setAttribute('dynamic-body', 'mass: 1');
+                ball.setAttribute('position', `${xPos} 2.5 -2`);
+                ball.setAttribute('radius', '0.15');
                 
-                // Add unique ID
-                ball.setAttribute('id', `ball-${Date.now()}`);
+                // Color based on side
+                const ballColor = isLeft ? '#4444ff' : '#ff4444'; // Blue for left, Red for right
+                ball.setAttribute('color', ballColor);
+                ball.setAttribute('id', `ball-${gameState.ballsThrown}`);
 
-                // Add ball to scene
+                // Add to scene
                 document.querySelector('a-scene').appendChild(ball);
 
-                // Animate ball movement
-                const targetPos = document.querySelector('#target-point').object3D.position;
-                const duration = 3000 / gameState.ballSpeed;
-                
+                // Set current ball
+                gameState.currentBall = ball;
+                gameState.ballActive = true;
+
+                // Show which key to press
+                const keyToPress = isLeft ? 'G' : 'H';
+                const sideText = isLeft ? 'LEFT' : 'RIGHT';
+                this.showFeedback(`${sideText} BALL - Press ${keyToPress}!`, isLeft ? 'blue' : 'red');
+
+                // Animate ball movement toward player
                 ball.setAttribute('animation', {
                     property: 'position',
-                    to: `${targetPos.x} ${targetPos.y} ${targetPos.z}`,
-                    dur: duration,
+                    to: `${xPos * 0.3} 1.6 -0.5`,
+                    dur: 3000,
                     easing: 'linear'
                 });
 
-                // Add collision detection
-                ball.addEventListener('collide', (evt) => {
-                    if (evt.detail.target.classList.contains('controller')) {
-                        this.catchBall(ball);
+                gameState.ballsThrown++;
+                this.updateUI();
+
+                // Ball expires after 3.5 seconds if not caught
+                setTimeout(() => {
+                    if (ball.parentNode && gameState.ballActive) {
+                        this.missedBall(ball);
                     }
+                }, 3500);
+            },
+
+            catchBall: function(ball, wasCorrect = false) {
+                if (!gameState.ballActive) return;
+
+                console.log('Ball caught correctly!');
+                gameState.ballActive = false;
+                
+                // Visual feedback
+                ball.setAttribute('color', '#44ff44'); // Green for success
+                ball.setAttribute('animation', {
+                    property: 'scale',
+                    to: '0.5 0.5 0.5',
+                    dur: 300
                 });
 
-                // Add controller intersection detection
-                ball.addEventListener('raycaster-intersected', (evt) => {
-                    this.catchBall(ball);
-                });
+                if (wasCorrect) {
+                    gameState.score++;
+                    this.showFeedback('CAUGHT! +1 point', 'green');
+                } else {
+                    this.showFeedback('Missed timing!', 'orange');
+                }
 
-                // Remove ball if it reaches the end without being caught
+                this.updateUI();
+
+                // Remove ball
                 setTimeout(() => {
                     if (ball.parentNode) {
                         ball.parentNode.removeChild(ball);
-                        this.nextBall();
                     }
-                }, duration + 500);
+                }, 300);
 
-                gameState.ballsThrown++;
-                this.updateUI();
+                this.nextBall();
             },
 
-            catchBall: function(ball) {
-                if (ball.parentNode) {
-                    // Visual feedback
-                    ball.setAttribute('material', 'color: #44ff44');
-                    ball.setAttribute('animation', {
-                        property: 'scale',
-                        to: '0.1 0.1 0.1',
-                        dur: 200
-                    });
-                    
-                    // Remove ball and update score
-                    setTimeout(() => {
-                        if (ball.parentNode) {
-                            ball.parentNode.removeChild(ball);
-                        }
-                    }, 200);
-                    
-                    gameState.score++;
-                    this.updateUI();
-                    this.nextBall();
-                }
+            wrongButton: function() {
+                if (!gameState.ballActive) return;
+
+                const correctKey = gameState.currentBallSide === 'left' ? 'G' : 'H';
+                const wrongSide = gameState.currentBallSide === 'left' ? 'RIGHT' : 'LEFT';
+                this.showFeedback(`Wrong side! This is a ${gameState.currentBallSide.toUpperCase()} ball - Press ${correctKey}!`, 'red');
+            },
+
+            missedBall: function(ball) {
+                console.log('Ball missed!');
+                gameState.ballActive = false;
+                
+                // Visual feedback
+                ball.setAttribute('color', '#888888'); // Gray for missed
+                ball.setAttribute('animation', {
+                    property: 'scale',
+                    to: '0.1 0.1 0.1',
+                    dur: 500
+                });
+
+                this.showFeedback('MISSED! Too slow!', 'red');
+
+                // Remove ball
+                setTimeout(() => {
+                    if (ball.parentNode) {
+                        ball.parentNode.removeChild(ball);
+                    }
+                }, 500);
+
+                this.nextBall();
             },
 
             nextBall: function() {
+                gameState.currentBall = null;
+                gameState.currentBallSide = null;
+
                 if (gameState.ballsThrown >= gameState.totalBalls) {
                     this.endRound();
                 } else {
-                    // Spawn next ball after delay
                     setTimeout(() => {
+                        this.clearFeedback();
                         this.spawnBall();
                     }, 1500);
                 }
             },
 
             endRound: function() {
-                gameState.isGameActive = false;
+                const percentage = Math.round((gameState.score / gameState.totalBalls) * 100);
+                console.log(`Round ${gameState.round} complete! Score: ${gameState.score}/${gameState.totalBalls} (${percentage}%)`);
                 
-                // Show round results
-                const resultText = document.createElement('a-text');
-                resultText.setAttribute('position', '0 2 -2');
-                resultText.setAttribute('value', `Round ${gameState.round} Complete!\nScore: ${gameState.score}/${gameState.totalBalls}\n\nStarting next round...`);
-                resultText.setAttribute('color', 'green');
-                resultText.setAttribute('font', 'kelsonsans');
-                resultText.setAttribute('width', '6');
-                resultText.setAttribute('align', 'center');
-                document.querySelector('a-scene').appendChild(resultText);
+                this.showFeedback(`Round Complete!\nScore: ${gameState.score}/${gameState.totalBalls} (${percentage}%)\nNext round starting...`, 'purple');
 
-                // Start next round after delay
+                // Reset for next round
                 setTimeout(() => {
-                    document.querySelector('a-scene').removeChild(resultText);
-                    this.resetRound();
-                }, 3000);
-            },
-
-            resetRound: function() {
-                gameState.round++;
-                gameState.ballsThrown = 0;
-                gameState.score = 0;
-                gameState.isGameActive = true;
-                gameState.ballSpeed = Math.min(gameState.ballSpeed + 0.2, 3); // Increase difficulty
-                
-                this.updateUI();
-                
-                // Start next round
-                setTimeout(() => {
-                    this.spawnBall();
-                }, 1000);
+                    // Remove completion message
+                    const completionMsg = document.querySelector('#completion-message');
+                    if (completionMsg && completionMsg.parentNode) {
+                        completionMsg.parentNode.removeChild(completionMsg);
+                    }
+                    
+                    gameState.round++;
+                    gameState.ballsThrown = 0;
+                    gameState.score = 0;
+                    this.updateUI();
+                    this.clearFeedback();
+                    this.startGame();
+                }, 4000);
             },
 
             updateUI: function() {
                 document.querySelector('#score-text').setAttribute('value', `Score: ${gameState.score}/${gameState.totalBalls}`);
                 document.querySelector('#round-text').setAttribute('value', `Round ${gameState.round}`);
-            }
-        });
+            },
 
-        // Add game controller to the scene
-        document.querySelector('#game-controller').setAttribute('game-controller', '');
+            showFeedback: function(message, color) {
+                const feedbackEl = document.querySelector('#feedback-text');
+                feedbackEl.setAttribute('value', message);
+                feedbackEl.setAttribute('color', color);
+            },
 
-        // Add some basic keyboard controls for testing without VR
-        document.addEventListener('keydown', (evt) => {
-            if (evt.key === ' ') {
-                // Spacebar to simulate catch
-                const balls = document.querySelectorAll('.ball');
-                if (balls.length > 0) {
-                    const gameController = document.querySelector('#game-controller').components['game-controller'];
-                    gameController.catchBall(balls[0]);
-                }
+            clearFeedback: function() {
+                document.querySelector('#feedback-text').setAttribute('value', '');
             }
         });
     </script>
@@ -237,29 +268,46 @@
     <style>
         body {
             margin: 0;
+            background: #000;
             font-family: Arial, sans-serif;
         }
         
-        .instructions {
-            position: absolute;
+        .desktop-instructions {
+            position: fixed;
             top: 10px;
             left: 10px;
-            background: rgba(0,0,0,0.7);
+            background: rgba(0,0,0,0.9);
             color: white;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
+            padding: 20px;
+            border-radius: 8px;
+            font-size: 16px;
             z-index: 1000;
+            line-height: 1.4;
+        }
+
+        .key-highlight {
+            background: #333;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #ffff00;
         }
     </style>
 
-    <div class="instructions">
-        <strong>VR Ball Catching Game</strong><br>
-        • Put on VR headset and grab controllers<br>
-        • Catch red balls coming from left/right<br>
-        • Use controllers to intersect with balls<br>
-        • 10 balls per round<br>
-        • Press SPACEBAR to test catch (desktop only)
+    <div class="desktop-instructions">
+        <strong>Ball Catching Game</strong><br><br>
+        
+        <strong>Controls:</strong><br>
+        • <span class="key-highlight">G</span> = Catch LEFT balls (blue)<br>
+        • <span class="key-highlight">H</span> = Catch RIGHT balls (red)<br><br>
+        
+        <strong>Rules:</strong><br>
+        • Watch which side the ball comes from<br>
+        • Press the correct key quickly<br>
+        • Wrong key = no points<br>
+        • Too slow = missed ball<br><br>
+        
+        <strong>Goal:</strong> Catch 10 balls per round
     </div>
 </body>
 </html>
